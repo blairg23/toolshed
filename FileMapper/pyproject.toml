@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "filemapper"
+version = "0.1.0"
+description = "Match, rename, and move/copy files based on a mapping config."
+authors = ["Blair Gemmer <blair.gemmer@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = "^6.0"
+
+[tool.poetry.scripts]
+filemapper = "filemapper:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
