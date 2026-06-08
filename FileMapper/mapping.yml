@@ -1,0 +1,20 @@
+source:
+  path: "/mnt/c/Users/Neophile/Videos/Streamlabs/inbox"
+  pattern: "{date} {time}.{ext}"   # e.g. "2026-05-25 17-54-45.mp4"
+
+target:
+  path: "/mnt/d/Dropbox/Multimedia/Music/Traktor/Recordings"
+  name_template: "{date}_{title}.{ext}"  # e.g. "2026-05-25_twitch_djs_house_nation_raid_train/" containing "2026-05-25_17h59m40.wav"
+
+match:
+  strategy: date_prefix     # options: chronological | date_prefix | manual
+  fallback: interactive     # drop to interactive prompt when match is ambiguous
+
+fields:
+  title:
+    source: folder_name     # pull from matched recording folder name (strip date prefix)
+    prompt_if_missing: true
+
+output:
+  path: "/mnt/d/Google Drive/Backup/VODs"
+  operation: move           # options: move | copy
