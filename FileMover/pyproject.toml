@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "filemover"
+version = "0.1.0"
+description = "Move or copy files and folders from src to dst."
+authors = ["Blair Gemmer <blair.gemmer@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = "^6.0"
+
+[tool.poetry.scripts]
+filemover = "filemover:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

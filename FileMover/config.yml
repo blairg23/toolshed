@@ -1,0 +1,5 @@
+src: "/mnt/c/Users/Neophile/Music/Traktor/Recordings"
+dst: "/mnt/d/Dropbox/Multimedia/Music/Traktor/Recordings"
+operation: move       # move | copy
+filter: directories   # directories | files | all
+dry_run: false
