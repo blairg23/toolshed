@@ -12,16 +12,8 @@ A library of shell and Python scripts for automating personal and creative workf
 | [GmailTools](GmailTools/) | Python | Gmail automation via OAuth -- label rules, filters (skeleton) |
 | [SLOBSTools](SLOBSTools/) | Shell | Streamlabs OBS VOD archival using FileMapper |
 | [TraktorProTools](TraktorProTools/) | Python + Shell | Traktor Pro backup suite: recordings, bundle, cleanup, cloud sync, m4a-to-FLAC conversion, collection repair |
-| [session_backup.sh](session_backup.sh) | Shell | Top-level orchestrator: runs Traktor backup + SLOBS VOD archival in one command |
 
 ## Usage
-
-Each tool reads its configuration from a local `config.yml`. All scripts accept a `dry` argument to preview without making changes:
-
-```bash
-./session_backup.sh dry     # preview
-./session_backup.sh live    # execute
-```
 
 Python tools use [Poetry](https://python-poetry.org/) for dependency management:
 
