@@ -1,10 +1,10 @@
 source:
-  path: "/mnt/c/Users/Neophile/Videos/Streamlabs/inbox"
+  path: "/path/to/source/inbox"
   pattern: "{date} {time}.{ext}"   # e.g. "2026-05-25 17-54-45.mp4"
 
 target:
-  path: "/mnt/d/Dropbox/Multimedia/Music/Traktor/Recordings"
-  name_template: "{date}_{title}.{ext}"  # e.g. "2026-05-25_twitch_djs_house_nation_raid_train/" containing "2026-05-25_17h59m40.wav"
+  path: "/path/to/target/recordings"
+  name_template: "{date}_{title}.{ext}"  # e.g. "2026-05-25_session_name/"
 
 match:
   strategy: date_prefix     # options: chronological | date_prefix | manual
@@ -16,5 +16,5 @@ fields:
     prompt_if_missing: true
 
 output:
-  path: "/mnt/d/Google Drive/Backup/VODs"
+  path: "/path/to/output"
   operation: move           # options: move | copy
