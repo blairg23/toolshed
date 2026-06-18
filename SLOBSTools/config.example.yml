@@ -1,13 +1,13 @@
 vods:
   source:
-    path: "/mnt/c/Users/Neophile/Videos/Streamlabs/inbox"
+    path: "/path/to/vod/inbox"
     pattern: "{date} {time}.{ext}"
 
   match:
     strategy: date_prefix
     fallback: interactive
     reference:
-      path: "/mnt/d/Dropbox/Multimedia/Music/Traktor/Recordings"
+      path: "/path/to/recordings"
       name_template: "{date}_{title}.{ext}"
       fields:
         title:
@@ -15,5 +15,5 @@ vods:
           prompt_if_missing: true
 
   output:
-    path: "/mnt/d/Google Drive/Multimedia/Videos/Twitch/vods"
+    path: "/path/to/vod/output"
     operation: move
