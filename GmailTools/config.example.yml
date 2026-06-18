@@ -1,0 +1,8 @@
+accounts:
+  - name: account-name
+    email: your.email@gmail.com
+    rules: []
+
+  - name: another-account
+    email: your.other.email@example.com
+    rules: []
