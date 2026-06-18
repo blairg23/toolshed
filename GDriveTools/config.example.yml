@@ -1,0 +1,3 @@
+backup:
+  local_src: "/path/to/local/source"
+  cloud_dst: "rclone-remote:Backup/path"

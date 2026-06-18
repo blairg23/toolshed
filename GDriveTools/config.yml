@@ -1,3 +1,0 @@
-backup:
-  local_src: "/mnt/d/Google Drive"
-  cloud_dst: "gdrive-personal:"
