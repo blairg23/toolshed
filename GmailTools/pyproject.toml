@@ -2,7 +2,7 @@
 name = "gmailtools"
 version = "0.1.0"
 description = "Gmail label automation tool"
-authors = ["blairg23 <blair.gemmer@gmail.com>"]
+authors = ["blairg23 <blairg23@gmail.com>"]
 packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
