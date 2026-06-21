@@ -1,49 +1,49 @@
 accounts:
-  - name: personal
+  - name: account-name
     email: your.email@gmail.com
     rules:
       # delete: move to trash
-      - sender: "Live Nation"
+      - sender: "Example Newsletter"
         action: delete
 
       # unsubscribe_delete: fire List-Unsubscribe then trash
-      - sender: "Scheels"
-        domain: "scheels.com"
+      - sender: "Example Store"
+        domain: "example-store.com"
         action: unsubscribe_delete
 
       # label: apply an existing label, optionally archive
-      - sender: "Sweatcoin"
+      - sender: "Example App"
         action: label
-        label: "Sweatcoin"
+        label: "Example App"
         archive: true
 
       # label_create: create label if missing, apply, optionally archive
-      - sender: "MKE With Kids"
+      - sender: "Example Blog"
         action: label_create
-        label: "MKE With Kids"
+        label: "Example Blog"
         archive: true
 
       # keep_latest: keep most recent N, label+archive the rest
-      - sender: "Aidvantage"
+      - sender: "Example Service"
         action: keep_latest
         keep: 1
-        label: "Aidvantage"
+        label: "Example Service"
         archive: true
 
       # conditional: match subject/body keywords, apply per-condition label
-      - sender: "Kickstarter"
+      - sender: "Example Crowdfund"
         action: conditional
         conditions:
-          - match: "Oceanus Brass"
-            label: "Crowdfunding/Kraken Blade"
-          - match: "Bando"
-            label: "Crowdfunding/Bando"
-          - match: "Phantom"
-            label: "Crowdfunding/Phantom"
+          - match: "Project Alpha"
+            label: "Crowdfunding/Alpha"
+          - match: "Project Beta"
+            label: "Crowdfunding/Beta"
+          - match: "Project Gamma"
+            label: "Crowdfunding/Gamma"
         fallback: delete
 
       # keep: leave in inbox untouched
-      - sender: "Esox"
+      - sender: "Important Sender"
         action: keep
 
   - name: another-account
