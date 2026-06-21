@@ -20,9 +20,9 @@ RCLONE_FLAGS=(--fast-list --transfers 8 \
     --retries 10 --retries-sleep 10s --low-level-retries 10)
 
 if [[ "$DRY_RUN" == "dry" ]]; then
-    RCLONE_FLAGS+=(--dry-run --log-level INFO)
+    RCLONE_FLAGS+=(--dry-run -v --stats 0 --log-level NOTICE)
 else
-    RCLONE_FLAGS+=(-P --log-level ERROR --stats-one-line --stats 2s)
+    RCLONE_FLAGS+=(-P --log-level NOTICE --stats-one-line --stats 2s)
 fi
 
 rclone copy "$LOCAL_SRC" "$CLOUD_DST" "${RCLONE_FLAGS[@]}"
