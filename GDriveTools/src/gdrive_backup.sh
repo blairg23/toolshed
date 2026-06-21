@@ -3,12 +3,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../config.yml"
-DRY_RUN="${1:-dry}"
+MODE="${1:-dry}"
+
+if [[ "$MODE" != "dry" && "$MODE" != "run" ]]; then
+    echo "Usage: $0 [dry|run]  (default: dry)" >&2
+    exit 1
+fi
 
 LOCAL_SRC="$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG')); print(c['backup']['local_src'])")"
 CLOUD_DST="$(python3 -c "import yaml; c=yaml.safe_load(open('$CONFIG')); print(c['backup']['cloud_dst'])")"
 
-[[ "$DRY_RUN" == "dry" ]] && echo "[DRY RUN]"
+[[ "$MODE" == "dry" ]] && echo "[DRY RUN]"
 echo ""
 echo "Source: $LOCAL_SRC"
 echo "Dest:   $CLOUD_DST"
@@ -19,7 +24,7 @@ RCLONE_FLAGS=(--fast-list --transfers 8 \
     --exclude "*.tmp" \
     --retries 10 --retries-sleep 10s --low-level-retries 10)
 
-if [[ "$DRY_RUN" == "dry" ]]; then
+if [[ "$MODE" == "dry" ]]; then
     RCLONE_FLAGS+=(--dry-run -v --stats 0 --log-level NOTICE)
 else
     RCLONE_FLAGS+=(-P --log-level NOTICE --stats-one-line --stats 2s)
