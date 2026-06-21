@@ -2,7 +2,7 @@
 name = "filemover"
 version = "0.1.0"
 description = "Move or copy files and folders from src to dst."
-authors = ["Blair Gemmer <blair.gemmer@gmail.com>"]
+authors = ["Blair Gemmer <blairg23@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
