@@ -184,7 +184,9 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
     resolved = []
     for src, tgt in pairs:
         if tgt is None and fallback == "interactive":
-            tgt = interactive_match(src, unmatched_targets)
+            date = get_date_prefix(src.name)
+            candidates = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
+            tgt = interactive_match(src, candidates or unmatched_targets)
             if tgt:
                 unmatched_targets.remove(tgt)
         resolved.append((src, tgt))
