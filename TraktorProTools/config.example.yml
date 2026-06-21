@@ -1,0 +1,25 @@
+bundle_format: tar.gz   # options: tar.gz | tar.zst | zip
+
+traktor:
+  dir: "/path/to/Traktor"
+  bundle_dir: "/path/to/bundles"
+  keep_backups: 3
+
+backup:
+  local_dst: "/path/to/local/backup"
+  cloud_dst: "rclone-remote:Backup/path"
+
+recordings:
+  src: "/path/to/recordings/source"
+  dst: "/path/to/recordings/destination"
+  operation: move
+  filter: directories
+
+rclone:
+  flags:
+    - --fast-list
+    - --transfers 8
+    - --retries 10
+    - --retries-sleep 10s
+    - --low-level-retries 10
+    - --exclude "_gsdata_/**"
