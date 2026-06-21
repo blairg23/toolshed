@@ -1,0 +1,19 @@
+vods:
+  source:
+    path: "/path/to/vod/inbox"
+    pattern: "{date} {time}.{ext}"
+
+  match:
+    strategy: date_prefix
+    fallback: interactive
+    reference:
+      path: "/path/to/recordings"
+      name_template: "{date}_{title}.{ext}"
+      fields:
+        title:
+          source: folder_name
+          prompt_if_missing: true
+
+  output:
+    path: "/path/to/vod/output"
+    operation: move
