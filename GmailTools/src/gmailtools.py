@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from auth import authenticate
+from .auth import authenticate
 
 
 def cmd_auth(args: argparse.Namespace) -> int:
