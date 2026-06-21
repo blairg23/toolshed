@@ -1,8 +1,51 @@
 accounts:
-  - name: account-name
+  - name: personal
     email: your.email@gmail.com
-    rules: []
+    rules:
+      # delete: move to trash
+      - sender: "Live Nation"
+        action: delete
+
+      # unsubscribe_delete: fire List-Unsubscribe then trash
+      - sender: "Scheels"
+        domain: "scheels.com"
+        action: unsubscribe_delete
+
+      # label: apply an existing label, optionally archive
+      - sender: "Sweatcoin"
+        action: label
+        label: "Sweatcoin"
+        archive: true
+
+      # label_create: create label if missing, apply, optionally archive
+      - sender: "MKE With Kids"
+        action: label_create
+        label: "MKE With Kids"
+        archive: true
+
+      # keep_latest: keep most recent N, label+archive the rest
+      - sender: "Aidvantage"
+        action: keep_latest
+        keep: 1
+        label: "Aidvantage"
+        archive: true
+
+      # conditional: match subject/body keywords, apply per-condition label
+      - sender: "Kickstarter"
+        action: conditional
+        conditions:
+          - match: "Oceanus Brass"
+            label: "Crowdfunding/Kraken Blade"
+          - match: "Bando"
+            label: "Crowdfunding/Bando"
+          - match: "Phantom"
+            label: "Crowdfunding/Phantom"
+        fallback: delete
+
+      # keep: leave in inbox untouched
+      - sender: "Esox"
+        action: keep
 
   - name: another-account
-    email: your.other.email@example.com
+    email: your.other.email@gmail.com
     rules: []
