@@ -1,5 +1,6 @@
 .env
 config.yml
+tokens/
 __pycache__/
 *.pyc
 .venv/

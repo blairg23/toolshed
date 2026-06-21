@@ -1,0 +1,6 @@
+google-auth>=2.0
+google-auth-oauthlib>=1.0
+google-api-python-client>=2.0
+ruamel.yaml>=0.18
+requests>=2.31
+python-dotenv>=1.0
