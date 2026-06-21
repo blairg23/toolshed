@@ -56,6 +56,7 @@ def authenticate(account: str) -> Credentials:
         creds = flow.run_local_server(port=0)
 
     token_file.write_text(creds.to_json())
+    token_file.chmod(0o600)
     return creds
 
 
