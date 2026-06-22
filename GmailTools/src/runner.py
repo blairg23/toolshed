@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
-from .actions import LabelCache, apply_action, get_header
+from .actions import LabelCache, apply_action, get_header, get_snippet
 from .auth import build_service
 from .classifier import classify_sender
 from .rules import add_rule, get_account, load_config, match_rule, save_config
@@ -46,7 +46,8 @@ def run_plan(
 
     # --- Fetch and match ---
     matched: list[tuple[dict, dict]] = []
-    unmatched_by_sender: dict[str, list[dict]] = {}
+    # key -> (representative From header, [msgs])
+    unmatched: dict[str, tuple[str, list[dict]]] = {}
 
     total_fetched = 0
     for cat in categories:
@@ -63,16 +64,18 @@ def run_plan(
                 matched.append((msg, rule))
             else:
                 key = _sender_key(from_hdr)
-                unmatched_by_sender.setdefault(key, []).append(msg)
+                if key not in unmatched:
+                    unmatched[key] = (from_hdr, [])
+                unmatched[key][1].append(msg)
 
     print(f"Fetched {total_fetched} message(s) across {len(categories)} category(ies).")
-    print(f"  Matched: {len(matched)}  |  Novel senders: {len(unmatched_by_sender)}")
+    print(f"  Matched: {len(matched)}  |  Novel senders: {len(unmatched)}")
 
     # --- Interactive classifier for novel senders ---
-    if unmatched_by_sender:
+    if unmatched:
         label_list = _list_labels(service)
-        print(f"\n{len(unmatched_by_sender)} sender(s) have no rule -- starting classifier.")
-        for from_hdr, msgs in unmatched_by_sender.items():
+        print(f"\n{len(unmatched)} sender(s) have no rule -- starting classifier.")
+        for key, (from_hdr, msgs) in unmatched.items():
             rule = classify_sender(from_hdr, msgs, label_list, input_fn=input_fn)
             if rule is not None:
                 add_rule(config, account_name, rule)
@@ -102,8 +105,17 @@ def run_plan(
 
     label_cache = LabelCache(service)
     results: list[dict[str, Any]] = []
+    keep_latest_done: set[str] = set()
+
     for msg, rule in matched:
         key = _sender_key(get_header(msg, "From"))
+
+        # keep_latest must run once per sender, not once per message
+        if rule["action"] == "keep_latest":
+            if key in keep_latest_done:
+                continue
+            keep_latest_done.add(key)
+
         result = apply_action(
             service, label_cache, msg, rule,
             sender_messages=sender_msgs.get(key, [msg]),
@@ -142,36 +154,51 @@ def _sender_key(from_hdr: str) -> str:
     return address.lower() or from_hdr.lower()
 
 
+def _effective_action(msg: dict, rule: dict) -> str:
+    """Resolve the actual action a message will receive, evaluating conditional branches."""
+    action = rule["action"]
+    if action != "conditional":
+        return action
+    subject = get_header(msg, "subject").lower()
+    snippet = get_snippet(msg).lower()
+    text = subject + " " + snippet
+    for condition in rule.get("conditions", []):
+        if condition["match"].lower() in text:
+            return f"conditional:label:{condition['label']}"
+    fallback = rule.get("fallback", "keep")
+    return f"conditional:{fallback}"
+
+
 def _print_plan(matched: list[tuple[dict, dict]]) -> None:
     action_counts: Counter = Counter()
     action_senders: dict[str, list[str]] = defaultdict(list)
 
     for msg, rule in matched:
-        action = rule["action"]
+        action = _effective_action(msg, rule)
         action_counts[action] += 1
         display, _ = email.utils.parseaddr(get_header(msg, "From"))
         if display and display not in action_senders[action]:
             action_senders[action].append(display)
 
-    print(f"\n{'Action':<22} {'Count':>5}  Examples")
-    print(f"{'-' * 22} {'-' * 5}  {'-' * 45}")
+    print(f"\n{'Action':<30} {'Count':>5}  Examples")
+    print(f"{'-' * 30} {'-' * 5}  {'-' * 40}")
     for action in sorted(action_counts):
         examples = ", ".join(action_senders[action][:3])
-        print(f"{action:<22} {action_counts[action]:>5}  {examples}")
-    print(f"{'-' * 22} {'-' * 5}")
-    print(f"{'TOTAL':<22} {sum(action_counts.values()):>5}")
+        print(f"{action:<30} {action_counts[action]:>5}  {examples}")
+    print(f"{'-' * 30} {'-' * 5}")
+    print(f"{'TOTAL':<30} {sum(action_counts.values()):>5}")
 
 
 def _print_summary(results: list[dict[str, Any]]) -> None:
     counts: Counter = Counter(r["action"] for r in results)
     errors = [r for r in results if r["action"] == "error"]
 
-    print(f"\n{'Action':<25} {'Count':>5}")
-    print(f"{'-' * 25} {'-' * 5}")
+    print(f"\n{'Action':<30} {'Count':>5}")
+    print(f"{'-' * 30} {'-' * 5}")
     for action in sorted(counts):
-        print(f"{action:<25} {counts[action]:>5}")
-    print(f"{'-' * 25} {'-' * 5}")
-    print(f"{'TOTAL':<25} {sum(counts.values()):>5}")
+        print(f"{action:<30} {counts[action]:>5}")
+    print(f"{'-' * 30} {'-' * 5}")
+    print(f"{'TOTAL':<30} {sum(counts.values()):>5}")
 
     if errors:
         print(f"\n{len(errors)} error(s):")

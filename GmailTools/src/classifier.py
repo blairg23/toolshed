@@ -96,7 +96,8 @@ def classify_sender(
     if match_choice in ("2", "3") and domain:
         rule["domain"] = domain
     if not rule:
-        rule["domain"] = domain if domain else (display_name or "unknown")
+        # Bad input or no valid key available -- skip rather than create an overly broad rule
+        return None
 
     rule["action"] = action
 
