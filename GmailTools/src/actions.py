@@ -72,6 +72,13 @@ def apply_action(
     if action == "keep":
         return {"action": "keep", "msg_id": msg_id}
 
+    if action == "archive":
+        if not dry_run:
+            service.users().messages().modify(
+                userId="me", id=msg_id, body={"removeLabelIds": ["INBOX"]}
+            ).execute()
+        return {"action": "archive", "msg_id": msg_id}
+
     if action == "delete":
         if not dry_run:
             service.users().messages().trash(userId="me", id=msg_id).execute()
@@ -139,7 +146,9 @@ def _fire_unsubscribe(header: str, service) -> None:
     for entry in entries:
         if entry.startswith("http"):
             try:
-                requests.post(entry, timeout=10)
+                resp = requests.post(entry, timeout=10)
+                if not resp.ok:
+                    requests.get(entry, timeout=10)
             except Exception:
                 try:
                     requests.get(entry, timeout=10)
