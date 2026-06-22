@@ -1,8 +1,51 @@
 accounts:
   - name: account-name
     email: your.email@gmail.com
-    rules: []
+    rules:
+      # delete: move to trash
+      - sender: "Example Newsletter"
+        action: delete
+
+      # unsubscribe_delete: fire List-Unsubscribe then trash
+      - sender: "Example Store"
+        domain: "example-store.com"
+        action: unsubscribe_delete
+
+      # label: apply an existing label, optionally archive
+      - sender: "Example App"
+        action: label
+        label: "Example App"
+        archive: true
+
+      # label_create: create label if missing, apply, optionally archive
+      - sender: "Example Blog"
+        action: label_create
+        label: "Example Blog"
+        archive: true
+
+      # keep_latest: keep most recent N, label+archive the rest
+      - sender: "Example Service"
+        action: keep_latest
+        keep: 1
+        label: "Example Service"
+        archive: true
+
+      # conditional: match subject/body keywords, apply per-condition label
+      - sender: "Example Crowdfund"
+        action: conditional
+        conditions:
+          - match: "Project Alpha"
+            label: "Crowdfunding/Alpha"
+          - match: "Project Beta"
+            label: "Crowdfunding/Beta"
+          - match: "Project Gamma"
+            label: "Crowdfunding/Gamma"
+        fallback: delete
+
+      # keep: leave in inbox untouched
+      - sender: "Important Sender"
+        action: keep
 
   - name: another-account
-    email: your.other.email@example.com
+    email: your.other.email@gmail.com
     rules: []
