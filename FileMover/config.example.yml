@@ -1,0 +1,5 @@
+src: "/path/to/source"
+dst: "/path/to/destination"
+operation: move       # move | copy
+filter: directories   # directories | files | all
+dry_run: false
