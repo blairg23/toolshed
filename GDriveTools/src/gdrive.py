@@ -22,11 +22,14 @@ path without touching config.yml.
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
+
+MD5_RE = re.compile(r"^[0-9a-f]{32}$")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR.parent / "config.yml"
@@ -92,8 +95,16 @@ def rclone_md5sum(path):
         line = line.strip()
         if not line:
             continue
-        digest, rel_path = line.split(None, 1)
-        hashes.setdefault(digest.lower(), []).append(rel_path.strip())
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        digest, rel_path = parts
+        digest = digest.lower()
+        if not MD5_RE.match(digest):
+            # e.g. "UNSUPPORTED" for native Google Docs/Sheets/Slides, which have
+            # no binary content and thus no computable hash -- skip, don't crash
+            continue
+        hashes.setdefault(digest, []).append(rel_path.strip())
     return hashes
 
 
