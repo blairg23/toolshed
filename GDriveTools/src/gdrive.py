@@ -82,7 +82,10 @@ def run_backup(args, config):
 def rclone_md5sum(path):
     """Return {md5_hash: [relative_path, ...]} for every file under path."""
     result = subprocess.run(
-        ["rclone", "md5sum", path] + exclude_flags(), capture_output=True, text=True, check=True
+        ["rclone", "md5sum", path, "--fast-list"] + exclude_flags(),
+        capture_output=True,
+        text=True,
+        check=True,
     )
     hashes = {}
     for line in result.stdout.splitlines():
