@@ -3,14 +3,8 @@ name = "gdrivetools"
 version = "0.1.0"
 description = "Rclone-backed backup and hash-based verify of a local directory against Google Drive."
 authors = ["Blair Gemmer <blairg23@gmail.com>"]
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
 pyyaml = "^6.0"
-
-[tool.poetry.scripts]
-gdrive = "gdrive:main"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
