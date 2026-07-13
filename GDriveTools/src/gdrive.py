@@ -32,6 +32,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR.parent / "config.yml"
 
 RCLONE_RETRY_FLAGS = ["--retries", "10", "--retries-sleep", "10s", "--low-level-retries", "10"]
+RCLONE_EXCLUDES = ["_gsdata_/**", "*.tmp"]
+
+
+def exclude_flags():
+    flags = []
+    for pattern in RCLONE_EXCLUDES:
+        flags += ["--exclude", pattern]
+    return flags
 
 
 def load_config():
@@ -61,15 +69,7 @@ def run_backup(args, config):
     print(f"Dest:   {cloud_dst}")
     print()
 
-    flags = [
-        "--fast-list",
-        "--transfers",
-        "8",
-        "--exclude",
-        "_gsdata_/**",
-        "--exclude",
-        "*.tmp",
-    ] + RCLONE_RETRY_FLAGS
+    flags = ["--fast-list", "--transfers", "8"] + exclude_flags() + RCLONE_RETRY_FLAGS
 
     if args.mode == "dry":
         flags += ["--dry-run", "-v", "--stats", "0", "--log-level", "NOTICE"]
@@ -81,7 +81,9 @@ def run_backup(args, config):
 
 def rclone_md5sum(path):
     """Return {md5_hash: [relative_path, ...]} for every file under path."""
-    result = subprocess.run(["rclone", "md5sum", path], capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        ["rclone", "md5sum", path] + exclude_flags(), capture_output=True, text=True, check=True
+    )
     hashes = {}
     for line in result.stdout.splitlines():
         line = line.strip()
