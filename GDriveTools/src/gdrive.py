@@ -104,10 +104,12 @@ def run_verify(args, config):
 
     print(f"Local: {local_src}")
     print(f"Drive: {cloud_dst}")
-    print("Hashing local and Drive contents (this can take a while)...")
     print()
 
+    print("Hashing local files...", flush=True)
     local_hashes = rclone_md5sum(local_src)
+
+    print(f"Listing/hashing Drive contents under {cloud_dst} (slow if this is a large account or root)...", flush=True)
     drive_hash_set = set(rclone_md5sum(cloud_dst).keys())
 
     local_root = Path(local_src)
