@@ -91,9 +91,14 @@ def rclone_md5sum(path, label):
     and prints each file as it's discovered, prefixed with `label`, so a long
     scan (e.g. an entire Drive account) shows visible progress instead of going
     silent until the whole thing completes.
+
+    Deliberately does NOT use --fast-list here: it buffers a much larger chunk
+    of the recursive listing before yielding anything, which fights the
+    per-file streaming this function exists to provide. --fast-list is still
+    used for `backup`'s rclone copy, where progress is reported separately.
     """
     proc = subprocess.Popen(
-        ["rclone", "md5sum", path, "--fast-list"] + exclude_flags(),
+        ["rclone", "md5sum", path] + exclude_flags(),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
