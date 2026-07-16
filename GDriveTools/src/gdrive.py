@@ -101,20 +101,18 @@ def run_backup(args, config):
 def rclone_md5sum(path, label):
     """Return {md5_hash: [relative_path, ...]} for every file under path.
 
-    Streams rclone's output line by line (rather than waiting for it to finish)
-    and prints each file as it's discovered, prefixed with `label`, so a long
-    scan (e.g. an entire Drive account) shows visible progress instead of going
-    silent until the whole thing completes.
-
-    Deliberately does NOT use --fast-list here: it buffers a much larger chunk
-    of the recursive listing before yielding anything, which fights the
-    per-file streaming this function exists to provide. --fast-list is still
-    used for `backup`'s rclone copy, where progress is reported separately.
+    Uses --fast-list: for a backend like Drive, this fetches the listing in
+    large paginated batches instead of walking one folder at a time, which is
+    dramatically fewer round trips for a big account. The trade-off is that
+    file/path output can arrive in a big burst rather than trickling in one at
+    a time. To still show signs of life during that burst, rclone's own
+    periodic --stats output is merged into the same stream (stderr -> stdout)
+    and printed as it arrives, alongside each file as it's parsed.
     """
     proc = subprocess.Popen(
-        ["rclone", "md5sum", path] + exclude_flags(),
+        ["rclone", "md5sum", path, "--fast-list", "--stats", "10s"] + exclude_flags(),
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
     )
     hashes = {}
@@ -123,22 +121,21 @@ def rclone_md5sum(path, label):
         if not line:
             continue
         parts = line.split(None, 1)
-        if len(parts) != 2:
-            continue
-        digest, rel_path = parts
-        digest = digest.lower()
-        rel_path = rel_path.strip()
-        print(f"  [{label}] {rel_path}", flush=True)
-        if not MD5_RE.match(digest):
-            # e.g. "UNSUPPORTED" for native Google Docs/Sheets/Slides, which have
-            # no binary content and thus no computable hash -- skip, don't crash
-            continue
-        hashes.setdefault(digest, []).append(rel_path)
+        digest = parts[0].lower() if parts else ""
+        if len(parts) == 2 and MD5_RE.match(digest):
+            rel_path = parts[1].strip()
+            print(f"  [{label}] {rel_path}", flush=True)
+            hashes.setdefault(digest, []).append(rel_path)
+        else:
+            # rclone's own --stats/log output, or an unhashable entry (e.g.
+            # "UNSUPPORTED" for a native Google Doc/Sheet/Slide) -- print as-is
+            # so a long, bursty scan still shows signs of life, but don't treat
+            # it as a real hash entry
+            print(f"  [{label}] {line}", flush=True)
 
-    stderr_output = proc.stderr.read()
     returncode = proc.wait()
     if returncode != 0:
-        raise subprocess.CalledProcessError(returncode, proc.args, output=None, stderr=stderr_output)
+        raise subprocess.CalledProcessError(returncode, proc.args)
     return hashes
 
 
