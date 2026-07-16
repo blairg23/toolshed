@@ -8,7 +8,7 @@ A library of shell and Python scripts for automating personal and creative workf
 |------|----------|-------------|
 | [FileMapper](FileMapper/) | Python | Match, rename, and move/copy files using configurable strategies (chronological, date-prefix, interactive fallback) |
 | [FileMover](FileMover/) | Python | Bulk move or copy files/directories from a source to destination |
-| [GDriveTools](GDriveTools/) | Shell | Rclone backup of a local directory to Google Drive |
+| [GDriveTools](GDriveTools/) | Python + Shell | Rclone backup of a local directory to Google Drive; read-only Drive API v3 folder analysis |
 | [GmailTools](GmailTools/) | Python | Gmail automation via OAuth -- label rules, filters (skeleton) |
 | [SLOBSTools](SLOBSTools/) | Shell | Streamlabs OBS VOD archival using FileMapper |
 | [TraktorProTools](TraktorProTools/) | Python + Shell | Traktor Pro backup suite: recordings, bundle, cleanup, cloud sync, m4a-to-FLAC conversion, collection repair |
