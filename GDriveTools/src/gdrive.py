@@ -15,18 +15,30 @@ Config (config.yml, sections are independent -- no shared keys):
     verify:
       local_src: "..."
       cloud_dst: "..."
-      output: stdout          # default; or a file path, e.g. missing-files.csv
-      drive_manifest: null    # optional; a file path to dump every Drive file's hash + location
+      output: stdout                  # default; or a file path, e.g. missing-files.csv
+      drive_manifest: null            # optional; a file path to dump every Drive file's hash + location
+      drive_cache_ttl_seconds: 86400  # reuse a cached Drive hash listing for this long (default 24h)
 
 Every config value can be overridden per-run via the matching CLI flag, so
 `verify` can check an arbitrary one-off directory against an arbitrary Drive
 path without touching config.yml.
+
+Hashing the local side is fast (it's just whatever folder you're checking),
+but Drive doesn't support "find me the file with this hash" -- only listing,
+which returns each file's hash as metadata. So the Drive side is scanned in
+full at least once. Since a typical workflow is "check folder A, then B,
+then C against the same Drive account", the Drive hash listing is cached to
+disk per cloud_dst and reused across runs until it goes stale (see
+--refresh-drive-cache / drive_cache_ttl_seconds).
 """
 
 import argparse
+import hashlib
+import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -35,6 +47,8 @@ MD5_RE = re.compile(r"^[0-9a-f]{32}$")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR.parent / "config.yml"
+CACHE_DIR = SCRIPT_DIR.parent / ".cache"
+DEFAULT_DRIVE_CACHE_TTL_SECONDS = 86400
 
 RCLONE_RETRY_FLAGS = ["--retries", "10", "--retries-sleep", "10s", "--low-level-retries", "10"]
 RCLONE_EXCLUDES = ["_gsdata_/**", "*.tmp"]
@@ -136,11 +150,39 @@ def join_remote(base, rel_path):
     return f"{base}/{rel_path}"
 
 
+def cache_path_for(cloud_dst):
+    digest = hashlib.sha256(cloud_dst.encode("utf-8")).hexdigest()[:16]
+    return CACHE_DIR / f"{digest}.json"
+
+
+def load_drive_cache(cloud_dst, ttl_seconds):
+    path = cache_path_for(cloud_dst)
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    age = time.time() - data["hashed_at"]
+    if age > ttl_seconds:
+        return None
+    print(f"Using cached Drive hash listing for {cloud_dst} ({int(age)}s old, ttl {ttl_seconds}s)")
+    return data["hashes"]
+
+
+def save_drive_cache(cloud_dst, hashes):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = cache_path_for(cloud_dst)
+    path.write_text(
+        json.dumps({"cloud_dst": cloud_dst, "hashed_at": time.time(), "hashes": hashes}),
+        encoding="utf-8",
+    )
+
+
 def run_verify(args, config):
     local_src = resolve(args, config, "verify", "local_src")
     cloud_dst = resolve(args, config, "verify", "cloud_dst")
     output = resolve(args, config, "verify", "output", required=False) or "stdout"
     drive_manifest = resolve(args, config, "verify", "drive_manifest", required=False)
+    ttl = resolve(args, config, "verify", "drive_cache_ttl_seconds", required=False)
+    ttl = int(ttl) if ttl is not None else DEFAULT_DRIVE_CACHE_TTL_SECONDS
     verbose = args.verbose
 
     print(f"Local: {local_src}")
@@ -150,8 +192,11 @@ def run_verify(args, config):
     print("Hashing local files...", flush=True)
     local_hashes = rclone_md5sum(local_src, label="local")
 
-    print(f"Listing/hashing Drive contents under {cloud_dst} (slow if this is a large account or root)...", flush=True)
-    drive_hashes = rclone_md5sum(cloud_dst, label="drive")
+    drive_hashes = None if args.refresh_drive_cache else load_drive_cache(cloud_dst, ttl)
+    if drive_hashes is None:
+        print(f"Listing/hashing Drive contents under {cloud_dst} (slow if this is a large account or root)...", flush=True)
+        drive_hashes = rclone_md5sum(cloud_dst, label="drive")
+        save_drive_cache(cloud_dst, drive_hashes)
 
     if drive_manifest:
         manifest_lines = sorted(
@@ -230,6 +275,11 @@ def build_parser():
         "--verbose",
         action="store_true",
         help="List each verified file's local path and matched Drive path(s)",
+    )
+    verify.add_argument(
+        "--refresh-drive-cache",
+        action="store_true",
+        help="Ignore any cached Drive hash listing and rescan Drive from scratch",
     )
     verify.set_defaults(func=run_verify)
 
