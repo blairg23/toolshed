@@ -212,12 +212,19 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
     resolved = []
     for src, tgt in pairs:
         if tgt is None and fallback == "interactive":
-            date = get_date_prefix(src.name)
-            candidates = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
-            if not candidates and date:
-                # No exact date match -- narrow to a nearby window instead of
-                # falling through to every unmatched target
-                candidates = nearby_candidates(date, unmatched_targets, fallback_window_days)
+            candidates = []
+            if strategy == "date_prefix":
+                # Date-based narrowing only makes sense for the date_prefix
+                # strategy -- e.g. under "manual", a source's filename may
+                # happen to start with a date-like string, but that's not a
+                # date_prefix match and shouldn't silently hide out-of-window
+                # targets from an intentionally unconstrained manual pick.
+                date = get_date_prefix(src.name)
+                candidates = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
+                if not candidates and date:
+                    # No exact date match -- narrow to a nearby window instead
+                    # of falling through to every unmatched target
+                    candidates = nearby_candidates(date, unmatched_targets, fallback_window_days)
             tgt = interactive_match(src, candidates or unmatched_targets)
             if tgt:
                 unmatched_targets.remove(tgt)
