@@ -63,7 +63,12 @@ def walk(service, folder_id, path_prefix=""):
 
 
 def fetch_text(service, file_id):
-    return service.files().get_media(fileId=file_id).execute().decode("utf-8", errors="replace")
+    return (
+        service.files()
+        .get_media(fileId=file_id, supportsAllDrives=True)
+        .execute()
+        .decode("utf-8", errors="replace")
+    )
 
 
 def find_origin_url(config_text):
