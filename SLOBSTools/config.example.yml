@@ -6,7 +6,7 @@ vods:
   match:
     strategy: date_prefix
     fallback: interactive
-    fallback_window_days: 3   # narrow the interactive picker to nearby dates instead of every unmatched folder
+    fallback_limit: 10   # show only the N closest targets by date-distance instead of every unmatched folder
     reference:
       path: "/path/to/recordings"
       name_template: "{date}_{title}.{ext}"
