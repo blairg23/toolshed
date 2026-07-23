@@ -255,7 +255,11 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
                     # are sparse
                     candidates = closest_candidates(date, unmatched_targets, fallback_limit)
                 else:
-                    candidates = [(t, None) for t in unmatched_targets[:fallback_limit]]
+                    # No date on the source at all -- there's nothing to rank
+                    # by distance, and no reasoning that could justify hiding
+                    # any target, so show everything rather than an arbitrary
+                    # slice that could permanently exclude the right one
+                    candidates = [(t, None) for t in unmatched_targets]
             else:
                 candidates = [(t, None) for t in unmatched_targets]
             tgt = interactive_match(src, candidates)
