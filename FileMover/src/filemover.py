@@ -43,10 +43,13 @@ def resolve_conflict(dest: Path) -> str:
 
 
 def remove_path(path: Path):
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
+    # is_dir() follows symlinks, so a symlink to a directory would otherwise
+    # reach rmtree(), which refuses to operate on symlinks and raises.
+    # Symlinks (to a file or a directory) just need unlinking, never rmtree.
+    if path.is_symlink() or not path.is_dir():
         path.unlink()
+    else:
+        shutil.rmtree(path)
 
 
 def run(cfg: dict, dry_run: bool):
