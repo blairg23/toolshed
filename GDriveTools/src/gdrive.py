@@ -189,6 +189,14 @@ def run_verify(args, config):
     print("Hashing local files...", flush=True)
     local_hashes = rclone_md5sum(local_src, label="local")
 
+    if not local_hashes:
+        print(f"\nERROR: no local files found under {local_src} -- nothing to verify.")
+        print("This is NOT the same as \"everything is backed up\" -- it means nothing was")
+        print("actually checked. Common cause: an unmounted/disconnected drive looks like")
+        print("an empty directory. Confirm the path is really accessible before trusting")
+        print("any result from this tool.")
+        return 2
+
     drive_hashes = None if args.refresh_drive_cache else load_drive_cache(cloud_dst, ttl)
     if drive_hashes is None:
         print(f"Listing/hashing Drive contents under {cloud_dst} (slow if this is a large account or root)...", flush=True)
