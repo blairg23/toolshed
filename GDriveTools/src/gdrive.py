@@ -286,6 +286,13 @@ def build_parser():
         action="store_true",
         help="Ignore any cached Drive hash listing and rescan Drive from scratch",
     )
+    verify.add_argument(
+        "--drive-cache-ttl-seconds",
+        dest="drive_cache_ttl_seconds",
+        type=int,
+        default=None,
+        help="How long to reuse a cached Drive hash listing, in seconds (default 86400 / 24h)",
+    )
     verify.set_defaults(func=run_verify)
 
     return parser
