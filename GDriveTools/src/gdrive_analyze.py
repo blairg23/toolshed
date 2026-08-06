@@ -24,10 +24,20 @@ sys.path.insert(0, str(Path(__file__).parent))
 from auth import build_service  # noqa: E402
 
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+GOOGLE_NATIVE_MIME_PREFIX = "application/vnd.google-apps."
+GOOGLE_NATIVE_EXPORT_MIME_TYPE = "text/plain"
 LIST_FIELDS = "nextPageToken, files(id, name, mimeType, size)"
 HEAVY_EXTENSIONS = {".mp4", ".glb", ".png", ".jpg", ".jpeg", ".pdf", ".ttf", ".otf", ".woff", ".woff2"}
 SMALL_TEXT_MAX_BYTES = 64 * 1024
 DEFAULT_OUTPUT = Path(__file__).parent.parent / "drive-tree.txt"
+
+
+def is_google_native(mime_type):
+    """True for native Google Docs/Sheets/Slides/etc -- everything under the
+    vnd.google-apps.* umbrella except folders. These have no binary content
+    (files.get_media 400s on them) and no `size` field; they must be fetched
+    via files.export instead."""
+    return mime_type.startswith(GOOGLE_NATIVE_MIME_PREFIX) and mime_type != FOLDER_MIME_TYPE
 
 
 def list_children(service, folder_id):
@@ -62,13 +72,15 @@ def walk(service, folder_id, path_prefix=""):
             yield from walk(service, item["id"], full_path)
 
 
-def fetch_text(service, file_id):
-    return (
-        service.files()
-        .get_media(fileId=file_id, supportsAllDrives=True)
-        .execute()
-        .decode("utf-8", errors="replace")
-    )
+def fetch_text(service, file_id, mime_type):
+    files_api = service.files()
+    if is_google_native(mime_type):
+        # Native Docs/Sheets/Slides have no downloadable binary content --
+        # export as plain text instead of fetching raw bytes
+        request = files_api.export(fileId=file_id, mimeType=GOOGLE_NATIVE_EXPORT_MIME_TYPE)
+    else:
+        request = files_api.get_media(fileId=file_id, supportsAllDrives=True)
+    return request.execute().decode("utf-8", errors="replace")
 
 
 def find_origin_url(config_text):
@@ -96,28 +108,36 @@ def categorize(items):
 
     for full_path, item in items:
         name = item["name"]
-        is_folder = item["mimeType"] == FOLDER_MIME_TYPE
+        mime_type = item["mimeType"]
+        is_folder = mime_type == FOLDER_MIME_TYPE
         size = int(item["size"]) if "size" in item else 0
         ext = PurePosixPath(name).suffix.lower()
 
-        if is_folder and name == ".git":
-            git_folders.append(full_path)
-        elif is_folder and name == ".github":
-            github_dirs.append(full_path)
-        elif is_folder and name == ".claude":
-            claude_dirs.append(full_path)
-        elif not is_folder and name == "CLAUDE.md":
+        if is_folder:
+            if name == ".git":
+                git_folders.append(full_path)
+            elif name == ".github":
+                github_dirs.append(full_path)
+            elif name == ".claude":
+                claude_dirs.append(full_path)
+            continue
+
+        # Path-only call-outs -- independent of, not exclusive with, the
+        # text-content bucketing below, so e.g. CLAUDE.md still gets its
+        # content fetched inline instead of only having its path noted
+        if name == "CLAUDE.md":
             claude_md_files.append(full_path)
-        elif not is_folder and name == "AGENTS.md":
+        elif name == "AGENTS.md":
             agents_md_files.append(full_path)
-        elif not is_folder and full_path.replace("\\", "/").endswith(".git/config"):
-            git_configs.append((full_path, item["id"]))
-        elif not is_folder and ext in HEAVY_EXTENSIONS:
+
+        if full_path.replace("\\", "/").endswith(".git/config"):
+            git_configs.append((full_path, item["id"], mime_type))
+        elif ext in HEAVY_EXTENSIONS:
             heavy_binaries.append((full_path, size))
-        elif not is_folder and size <= SMALL_TEXT_MAX_BYTES and (
+        elif size <= SMALL_TEXT_MAX_BYTES and (
             ext == ".md" or "config" in name.lower() or name == ".gitignore"
         ):
-            small_text_files.append((full_path, item["id"], size))
+            small_text_files.append((full_path, item["id"], size, mime_type))
 
     return {
         "git_folders": git_folders,
@@ -153,9 +173,9 @@ def print_summary(service, buckets):
         print(f"  {path}")
 
     print("\n=== git remote origin (from .git/config) ===")
-    for full_path, file_id in buckets["git_configs"]:
+    for full_path, file_id, mime_type in buckets["git_configs"]:
         try:
-            origin_url = find_origin_url(fetch_text(service, file_id))
+            origin_url = find_origin_url(fetch_text(service, file_id, mime_type))
         except Exception as exc:  # noqa: BLE001 -- report and continue, never abort the scan
             print(f"  {full_path}: could not fetch ({exc})")
             continue
@@ -166,10 +186,10 @@ def print_summary(service, buckets):
         print(f"  {size:>12}  {full_path}")
 
     print("\n=== Small text files (inline) ===")
-    for full_path, file_id, size in buckets["small_text_files"]:
+    for full_path, file_id, size, mime_type in buckets["small_text_files"]:
         print(f"\n--- {full_path} ({size} bytes) ---")
         try:
-            print(fetch_text(service, file_id))
+            print(fetch_text(service, file_id, mime_type))
         except Exception as exc:  # noqa: BLE001
             print(f"  could not fetch ({exc})")
 
