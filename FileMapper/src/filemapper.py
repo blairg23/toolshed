@@ -16,6 +16,8 @@ from datetime import datetime
 
 import yaml
 
+DEFAULT_FALLBACK_WINDOW_DAYS = 3
+
 
 def load_config(config_path: Path) -> dict:
     with open(config_path) as f:
@@ -79,6 +81,28 @@ def match_date_prefix(sources: list[Path], targets: list[Path]) -> list[tuple]:
     return pairs
 
 
+def nearby_candidates(date: str, targets: list[Path], window_days: int = DEFAULT_FALLBACK_WINDOW_DAYS) -> list[Path]:
+    """Targets whose date prefix is within window_days of date, closest first."""
+    try:
+        src_date = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return []
+    scored = []
+    for t in targets:
+        d = get_date_prefix(t.name)
+        if not d:
+            continue
+        try:
+            t_date = datetime.strptime(d, "%Y-%m-%d")
+        except ValueError:
+            continue
+        delta = abs((t_date - src_date).days)
+        if delta <= window_days:
+            scored.append((delta, t))
+    scored.sort(key=lambda pair: pair[0])
+    return [t for _, t in scored]
+
+
 def interactive_match(src: Path, targets: list[Path]) -> Path | None:
     """Let the user pick a target for an unmatched source."""
     print(f"\nNo automatic match for: {src.name}")
@@ -112,11 +136,14 @@ def build_output_name(src: Path, matched_target: Path | None, cfg: dict) -> str:
     if "ext" not in fields:
         fields["ext"] = src.suffix.lstrip(".")
 
-    # Pull title from matched folder name
+    # Pull title from matched folder name. Strip the *target's own* date prefix,
+    # not the source's -- they can differ now that nearby (non-exact) date
+    # matches are possible, and using the source's date here would leave the
+    # target's date prefix stuck onto the title.
     if matched_target and cfg["fields"].get("title", {}).get("source") == "folder_name":
         folder_name = matched_target.name
-        date = fields.get("date", "")
-        title = folder_name.removeprefix(date).lstrip("_-")
+        target_date = get_date_prefix(folder_name) or fields.get("date", "")
+        title = folder_name.removeprefix(target_date).lstrip("_-")
         fields["title"] = title
 
     # Prompt for any missing fields
@@ -180,12 +207,24 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
         pairs = [(s, None) for s in sources]
 
     # Resolve unmatched via interactive fallback
+    fallback_window_days = cfg.get("match", {}).get("fallback_window_days", DEFAULT_FALLBACK_WINDOW_DAYS)
     unmatched_targets = [t for t in targets if t not in [p[1] for p in pairs]]
     resolved = []
     for src, tgt in pairs:
         if tgt is None and fallback == "interactive":
-            date = get_date_prefix(src.name)
-            candidates = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
+            candidates = []
+            if strategy == "date_prefix":
+                # Date-based narrowing only makes sense for the date_prefix
+                # strategy -- e.g. under "manual", a source's filename may
+                # happen to start with a date-like string, but that's not a
+                # date_prefix match and shouldn't silently hide out-of-window
+                # targets from an intentionally unconstrained manual pick.
+                date = get_date_prefix(src.name)
+                candidates = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
+                if not candidates and date:
+                    # No exact date match -- narrow to a nearby window instead
+                    # of falling through to every unmatched target
+                    candidates = nearby_candidates(date, unmatched_targets, fallback_window_days)
             tgt = interactive_match(src, candidates or unmatched_targets)
             if tgt:
                 unmatched_targets.remove(tgt)

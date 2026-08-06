@@ -1,3 +1,10 @@
 backup:
   local_src: "/path/to/local/source"
   cloud_dst: "rclone-remote:Backup/path"
+
+verify:
+  local_src: "/path/to/local/source"
+  cloud_dst: "rclone-remote:Backup/path"
+  output: stdout
+  drive_manifest: null           # optional; a file path to dump every Drive file's hash + location
+  drive_cache_ttl_seconds: 86400 # reuse a cached Drive hash listing for this long (default 24h)

@@ -19,6 +19,39 @@ def load_config(config_path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+def resolve_conflict(dest: Path) -> str:
+    """Ask how to handle an item whose destination already exists.
+
+    Returns "replace", "skip", or "delete_source". Never falls through to a
+    plain shutil.move/copy call on an existing destination -- for
+    directories, shutil.move() treats an existing dest as "move inside me"
+    rather than "this is the final path", nesting the folder inside itself.
+    """
+    print(f"\nDestination already exists: {dest}")
+    print("  [r] Replace destination with this item")
+    print("  [s] Skip (leave both as-is)")
+    print("  [d] Delete source (assume it's already there)")
+    while True:
+        choice = input("Choice [r/s/d]: ").strip().lower()
+        if choice in ("r", "replace"):
+            return "replace"
+        if choice in ("s", "skip"):
+            return "skip"
+        if choice in ("d", "delete", "delete_source"):
+            return "delete_source"
+        print("Invalid choice.")
+
+
+def remove_path(path: Path):
+    # is_dir() follows symlinks, so a symlink to a directory would otherwise
+    # reach rmtree(), which refuses to operate on symlinks and raises.
+    # Symlinks (to a file or a directory) just need unlinking, never rmtree.
+    if path.is_symlink() or not path.is_dir():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
+
+
 def run(cfg: dict, dry_run: bool):
     src = Path(cfg["src"])
     dst = Path(cfg["dst"])
@@ -48,15 +81,31 @@ def run(cfg: dict, dry_run: bool):
         size = sum(f.stat().st_size for f in item.rglob("*") if f.is_file()) if item.is_dir() else item.stat().st_size
         size_str = f"{size / 1024 / 1024:.1f}M"
         dest = dst / item.name
-        print(f"  {item.name} ({size_str})")
+        conflict = dest.exists()
+        print(f"  {item.name} ({size_str}){'  [CONFLICT: destination exists]' if conflict else ''}")
         print(f"    from: {item}")
         print(f"      to: {dest}")
         print()
-        if not dry_run:
-            if operation == "move":
-                shutil.move(str(item), str(dest))
-            else:
-                shutil.copytree(str(item), str(dest)) if item.is_dir() else shutil.copy2(str(item), str(dest))
+        if dry_run:
+            continue
+
+        if conflict:
+            action = resolve_conflict(dest)
+            if action == "skip":
+                print(f"  Skipped (destination already exists): {item.name}")
+                continue
+            if action == "delete_source":
+                remove_path(item)
+                print(f"  Deleted source (destination already exists): {item.name}")
+                continue
+            # action == "replace"
+            remove_path(dest)
+            print(f"  Replacing existing destination: {item.name}")
+
+        if operation == "move":
+            shutil.move(str(item), str(dest))
+        else:
+            shutil.copytree(str(item), str(dest)) if item.is_dir() else shutil.copy2(str(item), str(dest))
 
     print(f"{label}Done.")
 
