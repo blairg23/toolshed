@@ -11,7 +11,7 @@ A library of shell and Python scripts for automating personal and creative workf
 | [GDriveTools](GDriveTools/) | Python | Rclone-backed backup and hash-based verify of a local directory against Google Drive |
 | [GmailTools](GmailTools/) | Python | Gmail automation via OAuth -- label rules, filters (skeleton) |
 | [SLOBSTools](SLOBSTools/) | Shell | Streamlabs OBS VOD archival using FileMapper |
-| [TraktorProTools](TraktorProTools/) | Python + Shell | Traktor Pro backup suite: recordings, bundle, cleanup, cloud sync, m4a-to-FLAC conversion, collection repair |
+| [TraktorProTools](TraktorProTools/) | Python + Shell | Traktor Pro backup suite: recordings, incremental/full-bundle cloud sync, cleanup, m4a-to-FLAC conversion, collection repair |
 
 ## Usage
 
@@ -22,6 +22,19 @@ cd FileMapper
 poetry install
 poetry run python src/filemapper.py --dry-run
 ```
+
+## Traktor backup modes
+
+`TraktorProTools/src/traktor_backup.sh [dry|run] [incremental|full-bundle]`
+
+- `incremental` (default) -- file-level `rclone sync` of the live Traktor
+  directory straight to the cloud remote, with `--backup-dir` for version
+  history on anything changed or deleted. Only changed files transfer
+  after the first run, so this is cheap enough for a daily or on-demand
+  cron.
+- `full-bundle` -- the original flow: tar.gz the whole directory, keep the
+  last few archives, sync the archives. Every run re-uploads a full new
+  archive, so it's better suited to a slower cadence, e.g. monthly.
 
 ## Adding a new tool
 
