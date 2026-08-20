@@ -1,0 +1,124 @@
+name: Validate PR review thread SOP
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+  # Replying to a review thread is a new review comment, so this re-triggers
+  # the check after the "reply" SOP step. Resolving a thread and reacting
+  # +1 have no corresponding Actions trigger event (GitHub does not expose
+  # pull_request_review_thread's resolved/unresolved action, or comment
+  # reactions, to workflow `on:` triggers) -- `repo-scaffold pr rerun
+  # --failed-only` after finishing those steps remains the way to refresh
+  # the check without a new commit or review submission.
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to check
+        required: true
+        type: number
+
+jobs:
+  check-sop:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+
+    steps:
+      - name: Check review threads for SOP compliance
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber =
+              context.payload.pull_request?.number ||
+              parseInt(context.payload.inputs?.pr_number || "0");
+
+            if (!prNumber) {
+              core.setFailed("Could not determine PR number from event payload.");
+              return;
+            }
+
+            const threads = [];
+            let after = null;
+            while (true) {
+              const data = await github.graphql(`
+                query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $number) {
+                      reviewThreads(first: 50, after: $after) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          isResolved
+                          comments(first: 50) {
+                            nodes {
+                              databaseId
+                              author { login }
+                              reactions(first: 30) {
+                                nodes { content }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                number: prNumber,
+                after,
+              });
+
+              const page = data.repository.pullRequest.reviewThreads;
+              threads.push(...page.nodes);
+              if (!page.pageInfo.hasNextPage) break;
+              after = page.pageInfo.endCursor;
+            }
+
+            if (threads.length === 0) {
+              core.info("No review threads found. SOP check passed.");
+              return;
+            }
+
+            const failing = [];
+            for (const thread of threads) {
+              const comments = thread.comments.nodes;
+              const hasReply = comments.length > 1;
+              const isResolved = thread.isResolved;
+              const firstComment = comments[0] || {};
+              const reactions = (firstComment.reactions?.nodes) || [];
+              const hasPlusOne = reactions.some(r => r.content === "THUMBS_UP");
+
+              if (!hasReply || !isResolved || !hasPlusOne) {
+                const missing = [];
+                if (!hasReply) missing.push("reply");
+                if (!isResolved) missing.push("resolved");
+                if (!hasPlusOne) missing.push("reaction(+1)");
+                failing.push({
+                  threadId: thread.id,
+                  commentId: firstComment.databaseId,
+                  missing,
+                });
+              }
+            }
+
+            const total = threads.length;
+            const passed = total - failing.length;
+            core.info(`${passed}/${total} threads SOP-compliant.`);
+
+            if (failing.length > 0) {
+              for (const f of failing) {
+                core.error(
+                  `Thread ${f.threadId} (comment #${f.commentId}) missing: ${f.missing.join(", ")}`
+                );
+              }
+              core.setFailed(
+                `${failing.length} review thread(s) not SOP-compliant. ` +
+                "SOP: push fix -> reply with commit hash -> resolve thread -> react +1."
+              );
+            }
