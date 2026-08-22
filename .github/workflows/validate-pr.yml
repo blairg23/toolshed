@@ -1,29 +1,24 @@
-name: Validate issue body format
+name: Validate PR body format
 
 on:
-  issues:
-    types: [opened, edited]
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
-  validate:
+  validate-pr:
     runs-on: ubuntu-latest
     permissions:
-      issues: write
+      pull-requests: write
 
     steps:
-      - name: Check body and flag if malformed
+      - name: Check PR body and flag if malformed
         uses: actions/github-script@v9
         with:
           script: |
-            const body = context.payload.issue.body || "";
-            const number = context.payload.issue.number;
+            const number = context.payload.pull_request.number;
+            const author = context.payload.pull_request.user?.login || "";
 
-            const required = ["## 🧾 Title", "## 🧠 Summary"];
-            const missing = required.filter(h => !body.includes(h));
-
-            if (missing.length === 0) {
-              core.info(`Issue #${number} body looks good.`);
-              // Remove needs-format if it was added by a previous failed check
+            const removeStaleLabel = async () => {
               try {
                 await github.rest.issues.removeLabel({
                   owner: context.repo.owner,
@@ -31,8 +26,24 @@ jobs:
                   issue_number: number,
                   name: "needs-format",
                 });
-                core.info(`Removed needs-format label from issue #${number}.`);
+                core.info(`Removed needs-format label from PR #${number}.`);
               } catch (_) {}
+            };
+
+            if (author === "dependabot[bot]") {
+              core.info(`PR #${number} is from Dependabot; skipping body-format check.`);
+              // Clear any needs-format label left over from before this skip existed.
+              await removeStaleLabel();
+              return;
+            }
+
+            const body = context.payload.pull_request.body || "";
+            const required = ["## 🧾 Title"];
+            const missing = required.filter(h => !body.includes(h));
+
+            if (missing.length === 0) {
+              core.info(`PR #${number} body looks good.`);
+              await removeStaleLabel();
               return;
             }
 
@@ -59,9 +70,9 @@ jobs:
               repo: context.repo.repo,
               issue_number: number,
               body: [
-                "This issue is missing required template sections:",
+                "This PR is missing required body sections:",
                 ...missing.map(h => `- \`${h}\``),
                 "",
-                "Please update the body to match the [epic template](../.github/ISSUE_TEMPLATE/epic.md) or [ticket template](../.github/ISSUE_TEMPLATE/ticket.md).",
+                "Please update the PR description to match the [pull request template](../.github/pull_request_template.md).",
               ].join("\n"),
             });
