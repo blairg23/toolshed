@@ -5,9 +5,7 @@ source "$(dirname "$0")/load_config.sh"
 DRY_RUN="${1:-dry}"
 [[ "$DRY_RUN" == "dry" ]] && echo "[DRY RUN]"
 
-# config.yml's rclone.flags entries are shell-quoted literals (e.g. the
-# exclude glob), so eval them the same way a hand-written array would be.
-eval "FLAGS=($RCLONE_FLAGS)"
+FLAGS=("${RCLONE_FLAGS[@]}")
 
 if [[ "$DRY_RUN" == "dry" ]]; then
     FLAGS+=(--dry-run --log-level INFO)

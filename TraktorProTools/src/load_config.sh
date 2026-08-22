@@ -16,6 +16,16 @@ import sys, yaml, shlex
 with open(sys.argv[1]) as f:
     cfg = yaml.safe_load(f)
 
+# Each config entry may itself be multiple shell tokens (e.g. "--transfers 8"
+# or '--exclude "_gsdata_/**"'); split with shlex first, then re-quote each
+# token individually so the result is a real bash array literal. Consuming
+# scripts can use "${RCLONE_FLAGS[@]}" directly -- no eval of config-derived
+# text required.
+rclone_tokens = []
+for entry in cfg["rclone"]["flags"]:
+    rclone_tokens.extend(shlex.split(entry))
+rclone_flags_literal = " ".join(shlex.quote(tok) for tok in rclone_tokens)
+
 lines = [
     f'BUNDLE_FORMAT={shlex.quote(cfg.get("bundle_format", "tar.gz"))}',
     f'TRAKTOR_DIR={shlex.quote(cfg["traktor"]["dir"])}',
@@ -25,7 +35,7 @@ lines = [
     f'CLOUD_DST={shlex.quote(cfg["backup"]["cloud_dst"])}',
     f'RECORDINGS_SRC={shlex.quote(cfg["recordings"]["src"])}',
     f'RECORDINGS_DST={shlex.quote(cfg["recordings"]["dst"])}',
-    f'RCLONE_FLAGS={shlex.quote(" ".join(cfg["rclone"]["flags"]))}',
+    f'RCLONE_FLAGS=({rclone_flags_literal})',
 ]
 
 with open(sys.argv[2], 'w') as f:
