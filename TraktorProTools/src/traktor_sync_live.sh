@@ -13,4 +13,9 @@ else
     FLAGS+=(-P --log-level ERROR --stats-one-line --stats 2s)
 fi
 
-rclone sync "$BUNDLE_DIR" "$CLOUD_DST/bundles" "${FLAGS[@]}"
+# Anything rclone would overwrite or delete on this run is moved here
+# instead of lost, so we keep version history without re-archiving
+# everything on every run.
+BACKUP_DIR="$CLOUD_DST/live-versions/$(date +%Y%m%d_%H%M%S)"
+
+rclone sync "$TRAKTOR_DIR" "$CLOUD_DST/live" --backup-dir "$BACKUP_DIR" "${FLAGS[@]}"
