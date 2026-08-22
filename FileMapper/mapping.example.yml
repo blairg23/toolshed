@@ -9,8 +9,8 @@ target:
 match:
   strategy: date_prefix     # options: chronological | date_prefix | manual
   fallback: interactive     # drop to interactive prompt when match is ambiguous
-  fallback_window_days: 3   # when no exact date match, narrow the interactive picker
-                             # to targets within this many days, closest first
+  fallback_limit: 10        # when no exact date match, show only the N closest
+                             # targets by date-distance, closest first
 
 fields:
   title:

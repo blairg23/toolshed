@@ -16,7 +16,7 @@ from datetime import datetime
 
 import yaml
 
-DEFAULT_FALLBACK_WINDOW_DAYS = 3
+DEFAULT_FALLBACK_LIMIT = 10
 
 
 def load_config(config_path: Path) -> dict:
@@ -81,42 +81,68 @@ def match_date_prefix(sources: list[Path], targets: list[Path]) -> list[tuple]:
     return pairs
 
 
-def nearby_candidates(date: str, targets: list[Path], window_days: int = DEFAULT_FALLBACK_WINDOW_DAYS) -> list[Path]:
-    """Targets whose date prefix is within window_days of date, closest first."""
+def closest_candidates(
+    date: str, targets: list[Path], limit: int = DEFAULT_FALLBACK_LIMIT
+) -> list[tuple[Path, int | None]]:
+    """The `limit` targets closest to date by day-distance, closest first.
+
+    Always returns up to `limit` results (as long as targets is non-empty) --
+    there's no "in range or nothing" cliff. Each result pairs the target with
+    its day-distance from date (None if the target has no parseable date, in
+    which case it's ranked last).
+    """
     try:
         src_date = datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
-        return []
+        src_date = None
+
     scored = []
+    undated = []
     for t in targets:
         d = get_date_prefix(t.name)
-        if not d:
-            continue
-        try:
-            t_date = datetime.strptime(d, "%Y-%m-%d")
-        except ValueError:
-            continue
-        delta = abs((t_date - src_date).days)
-        if delta <= window_days:
-            scored.append((delta, t))
+        t_date = None
+        if d:
+            try:
+                t_date = datetime.strptime(d, "%Y-%m-%d")
+            except ValueError:
+                t_date = None
+        if src_date is not None and t_date is not None:
+            scored.append((abs((t_date - src_date).days), t))
+        else:
+            undated.append(t)
+
     scored.sort(key=lambda pair: pair[0])
-    return [t for _, t in scored]
+    result = [(t, delta) for delta, t in scored[:limit]]
+    if len(result) < limit:
+        result.extend((t, None) for t in undated[: limit - len(result)])
+    return result
 
 
-def interactive_match(src: Path, targets: list[Path]) -> Path | None:
-    """Let the user pick a target for an unmatched source."""
+def interactive_match(src: Path, candidates: list[tuple[Path, int | None]]) -> Path | None:
+    """Let the user pick a target for an unmatched source.
+
+    `candidates` pairs each target with its day-distance from src's date
+    (None if unknown), so the picker can show how close each option actually
+    is instead of an unlabeled, unbounded list.
+    """
     print(f"\nNo automatic match for: {src.name}")
-    print("Available targets:")
-    for i, t in enumerate(targets, 1):
-        print(f"  {i}. {t.name}")
+    print("Closest targets:")
+    for i, (t, delta) in enumerate(candidates, 1):
+        if delta is None:
+            label = "no date"
+        elif delta == 0:
+            label = "same day"
+        else:
+            label = f"{delta} day{'s' if delta != 1 else ''} away"
+        print(f"  {i}. {t.name}  ({label})")
     print("  0. Skip")
     while True:
         try:
             choice = int(input("Match to: ").strip())
             if choice == 0:
                 return None
-            if 1 <= choice <= len(targets):
-                return targets[choice - 1]
+            if 1 <= choice <= len(candidates):
+                return candidates[choice - 1][0]
         except ValueError:
             pass
         print("Invalid choice.")
@@ -207,25 +233,36 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
         pairs = [(s, None) for s in sources]
 
     # Resolve unmatched via interactive fallback
-    fallback_window_days = cfg.get("match", {}).get("fallback_window_days", DEFAULT_FALLBACK_WINDOW_DAYS)
+    fallback_limit = cfg.get("match", {}).get("fallback_limit", DEFAULT_FALLBACK_LIMIT)
     unmatched_targets = [t for t in targets if t not in [p[1] for p in pairs]]
     resolved = []
     for src, tgt in pairs:
         if tgt is None and fallback == "interactive":
-            candidates = []
             if strategy == "date_prefix":
                 # Date-based narrowing only makes sense for the date_prefix
                 # strategy -- e.g. under "manual", a source's filename may
                 # happen to start with a date-like string, but that's not a
-                # date_prefix match and shouldn't silently hide out-of-window
-                # targets from an intentionally unconstrained manual pick.
+                # date_prefix match and shouldn't silently hide targets from
+                # an intentionally unconstrained manual pick.
                 date = get_date_prefix(src.name)
-                candidates = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
-                if not candidates and date:
-                    # No exact date match -- narrow to a nearby window instead
-                    # of falling through to every unmatched target
-                    candidates = nearby_candidates(date, unmatched_targets, fallback_window_days)
-            tgt = interactive_match(src, candidates or unmatched_targets)
+                exact = [t for t in unmatched_targets if get_date_prefix(t.name) == date] if date else []
+                if exact:
+                    candidates = [(t, 0) for t in exact]
+                elif date:
+                    # No exact date match -- always show the closest few by
+                    # date-distance rather than a fixed window that can come
+                    # up empty (and fall through to everything) when targets
+                    # are sparse
+                    candidates = closest_candidates(date, unmatched_targets, fallback_limit)
+                else:
+                    # No date on the source at all -- there's nothing to rank
+                    # by distance, and no reasoning that could justify hiding
+                    # any target, so show everything rather than an arbitrary
+                    # slice that could permanently exclude the right one
+                    candidates = [(t, None) for t in unmatched_targets]
+            else:
+                candidates = [(t, None) for t in unmatched_targets]
+            tgt = interactive_match(src, candidates)
             if tgt:
                 unmatched_targets.remove(tgt)
         resolved.append((src, tgt))
