@@ -1,8 +1,8 @@
 """Tests for gdrive.py's audit subcommand logic.
 
 Everything here exercises pure, deterministic functions operating on
-synthetic {rel_path: {"md5":..., "size":...}} entries dicts -- never a real
-rclone invocation or real Google Drive account.
+synthetic {rel_path: [{"md5":..., "size":...}, ...]} entries dicts -- never
+a real rclone invocation or real Google Drive account.
 """
 
 from __future__ import annotations
@@ -13,9 +13,21 @@ import gdrive
 
 
 def _entries(**paths):
-    """Build a synthetic entries dict from path=(md5, size) kwargs-friendly
-    positional tuples, e.g. _entries(**{"a/b.jpg": ("hash1", 100)})."""
-    return {path: {"md5": md5, "size": size} for path, (md5, size) in paths.items()}
+    """Build a synthetic entries dict (the rich {rel_path: [record, ...]}
+    shape) from path=(md5, size) kwargs-friendly positional tuples, e.g.
+    _entries(**{"a/b.jpg": ("hash1", 100)}). Each path gets exactly one
+    record; use _entries_multi() to give a path more than one."""
+    return {path: [{"md5": md5, "size": size}] for path, (md5, size) in paths.items()}
+
+
+def _entries_multi(**paths):
+    """Like _entries(), but each path maps to a *list* of (md5, size)
+    tuples, e.g. _entries_multi(**{"a.jpg": [("hash1", 100), ("hash2", 50)]})
+    -- for cases where Drive has multiple distinct objects sharing a name."""
+    return {
+        path: [{"md5": md5, "size": size} for md5, size in records]
+        for path, records in paths.items()
+    }
 
 
 # ---------- format_size ----------
@@ -36,6 +48,10 @@ def test_format_size_mb():
 def test_format_size_zero_or_none():
     assert gdrive.format_size(0) == "0 B"
     assert gdrive.format_size(None) == "0 B"
+
+
+def test_format_size_continues_scaling_past_gb_into_tb():
+    assert gdrive.format_size(int(1.5 * 1024**4)) == "1.50 TB"
 
 
 # ---------- is_junk_path ----------
@@ -90,6 +106,21 @@ def test_digest_to_paths_excludes_missing_hash():
     })
     by_digest = gdrive.digest_to_paths(entries)
     assert by_digest == {"hash1": ["a.jpg"]}
+
+
+def test_same_path_objects_are_not_overwritten():
+    """Drive allows two distinct files to share a name within a folder;
+    both objects at that path must survive, not just the last one seen."""
+    entries = _entries_multi(**{
+        "Camera/IMG_0001.jpg": [("hash1", 100), ("hash2", 250)],
+    })
+    by_digest = gdrive.digest_to_paths(entries)
+    assert by_digest == {"hash1": ["Camera/IMG_0001.jpg"], "hash2": ["Camera/IMG_0001.jpg"]}
+
+    _folders, largest = gdrive.audit_space_breakdown(entries, top_n=10)
+    assert sorted(largest) == sorted(
+        [("Camera/IMG_0001.jpg", 100), ("Camera/IMG_0001.jpg", 250)]
+    )
 
 
 # ---------- audit_duplicates ----------
@@ -181,7 +212,7 @@ def test_audit_space_breakdown_largest_files_respects_top_n():
 
 def test_drive_cache_round_trips_rich_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(gdrive, "CACHE_DIR", tmp_path)
-    entries = {"a.jpg": {"md5": "hash1", "size": 100}}
+    entries = {"a.jpg": [{"md5": "hash1", "size": 100}]}
 
     gdrive.save_drive_cache("remote:path", entries)
     loaded = gdrive.load_drive_cache("remote:path", ttl_seconds=3600)
@@ -191,7 +222,7 @@ def test_drive_cache_round_trips_rich_entries(tmp_path, monkeypatch):
 
 def test_drive_cache_returns_none_when_stale(tmp_path, monkeypatch):
     monkeypatch.setattr(gdrive, "CACHE_DIR", tmp_path)
-    entries = {"a.jpg": {"md5": "hash1", "size": 100}}
+    entries = {"a.jpg": [{"md5": "hash1", "size": 100}]}
     gdrive.save_drive_cache("remote:path", entries)
 
     cache_file = gdrive.cache_path_for("remote:path")
@@ -208,3 +239,25 @@ def test_drive_cache_returns_none_when_stale(tmp_path, monkeypatch):
 def test_drive_cache_returns_none_when_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(gdrive, "CACHE_DIR", tmp_path)
     assert gdrive.load_drive_cache("remote:never-cached", ttl_seconds=3600) is None
+
+
+def test_drive_cache_treats_legacy_hashes_schema_as_a_miss(tmp_path, monkeypatch):
+    """A cache written by the pre-audit verify() used a digest->paths
+    "hashes" key instead of "entries" -- must be treated as a cache miss
+    (triggering a rescan) rather than raising KeyError."""
+    monkeypatch.setattr(gdrive, "CACHE_DIR", tmp_path)
+    import json
+
+    cache_file = gdrive.cache_path_for("remote:path")
+    cache_file.write_text(
+        json.dumps(
+            {
+                "cloud_dst": "remote:path",
+                "hashed_at": time.time(),
+                "hashes": {"hash1": ["a.jpg"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert gdrive.load_drive_cache("remote:path", ttl_seconds=3600) is None

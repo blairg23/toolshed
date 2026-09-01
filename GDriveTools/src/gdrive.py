@@ -153,10 +153,16 @@ def rclone_md5sum(path, label):
 
 
 def rclone_lsjson_hash(path, label):
-    """Return {rel_path: {"md5": str|None, "size": int|None}} for every file
-    under path, via `rclone lsjson --hash`, which returns path + size + MD5
-    in one recursive call (plain `rclone md5sum` returns hash + path only,
-    no size).
+    """Return {rel_path: [{"md5": str|None, "size": int|None}, ...]} for
+    every file under path, via `rclone lsjson --hash`, which returns path +
+    size + MD5 in one recursive call (plain `rclone md5sum` returns hash +
+    path only, no size).
+
+    Each rel_path maps to a *list* of records, not a single record --
+    unlike a local filesystem, Drive allows multiple distinct files to
+    share the same name within a folder, so `lsjson` can legitimately
+    return more than one entry for the same Path. Keying by path alone and
+    overwriting would silently drop every record but the last one seen.
 
     Unlike rclone_md5sum()'s plain-text output, lsjson's JSON array isn't
     safely parseable line-by-line, so stdout is buffered in full and parsed
@@ -209,23 +215,35 @@ def rclone_lsjson_hash(path, label):
             continue
         digest = (item.get("Hashes") or {}).get("md5")
         size = item.get("Size")
-        entries[rel_path] = {
-            "md5": digest.lower() if digest else None,
-            "size": size if isinstance(size, int) else None,
-        }
+        entries.setdefault(rel_path, []).append(
+            {
+                "md5": digest.lower() if digest else None,
+                "size": size if isinstance(size, int) else None,
+            }
+        )
         print(f"  [{label}] {rel_path}", flush=True)
     return entries
 
 
+def iter_entries(entries):
+    """Yield (rel_path, md5, size) for every Drive object in the rich
+    {rel_path: [{"md5":..., "size":...}, ...]} cache shape -- one yield per
+    object, even when two objects share the same rel_path."""
+    for rel_path, records in entries.items():
+        for info in records:
+            yield rel_path, info.get("md5"), info.get("size")
+
+
 def digest_to_paths(entries):
-    """Project the rich {rel_path: {"md5":..., "size":...}} cache entries
-    into the {digest: [rel_paths]} shape verify()'s local-vs-Drive
-    comparison already relies on -- entries with no hash (e.g. native
+    """Project the rich {rel_path: [{"md5":..., "size":...}, ...]} cache
+    entries into the {digest: [rel_paths]} shape verify()'s local-vs-Drive
+    comparison already relies on -- objects with no hash (e.g. native
     Google Docs/Sheets/Slides) are excluded, same as rclone_md5sum() simply
-    never emitting a hash line for them."""
+    never emitting a hash line for them. A rel_path shared by two objects
+    with the same digest appears twice in that digest's list, matching
+    there really being two such Drive objects."""
     by_digest = {}
-    for rel_path, info in entries.items():
-        digest = info.get("md5")
+    for rel_path, digest, _size in iter_entries(entries):
         if digest:
             by_digest.setdefault(digest, []).append(rel_path)
     return by_digest
@@ -245,8 +263,11 @@ def cache_path_for(cloud_dst):
 
 
 def load_drive_cache(cloud_dst, ttl_seconds):
-    """Return the cached {rel_path: {"md5":..., "size":...}} entries for
-    cloud_dst, or None if there's no cache or it's past ttl_seconds."""
+    """Return the cached {rel_path: [{"md5":..., "size":...}, ...]} entries
+    for cloud_dst, or None if there's no cache, it's past ttl_seconds, or
+    it's a legacy cache written before the audit subcommand (digest->paths
+    "hashes" shape instead of path->records "entries") -- treated as a
+    miss rather than raising, so it's simply rescanned once."""
     path = cache_path_for(cloud_dst)
     if not path.exists():
         return None
@@ -254,8 +275,11 @@ def load_drive_cache(cloud_dst, ttl_seconds):
     age = time.time() - data["hashed_at"]
     if age > ttl_seconds:
         return None
+    entries = data.get("entries")
+    if entries is None:
+        return None
     print(f"Using cached Drive hash listing for {cloud_dst} ({int(age)}s old, ttl {ttl_seconds}s)")
-    return data["entries"]
+    return entries
 
 
 def save_drive_cache(cloud_dst, entries):
@@ -388,24 +412,32 @@ def is_junk_path(rel_path):
 def format_size(num_bytes):
     """Human-readable byte size, e.g. 1536000 -> '1.46 MB'."""
     size = float(num_bytes or 0)
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024 or unit == "GB":
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
             return f"{int(size)} B" if unit == "B" else f"{size:.2f} {unit}"
         size /= 1024
-    return f"{size:.2f} TB"
+    return f"{size:.2f} PB"  # effectively unreachable for a real Drive account
 
 
 def audit_duplicates(entries):
-    """Group entries by MD5; return only digests with 2+ locations, each as
-    (digest, size, reclaimable, [rel_paths, ...]) sorted by reclaimable
-    space descending. reclaimable is size * (copies - 1): what's freed if
-    only one copy of each duplicate is kept."""
+    """Group Drive objects by MD5; return only digests with 2+ locations,
+    each as (digest, size, reclaimable, [rel_paths, ...]) sorted by
+    reclaimable space descending. reclaimable is size * (copies - 1):
+    what's freed if only one copy of each duplicate is kept. Two objects
+    with identical content share both digest and size by definition, so
+    the group's size is taken from whichever matching object is seen
+    first."""
+    size_by_digest = {}
+    for _rel_path, digest, size in iter_entries(entries):
+        if digest and digest not in size_by_digest:
+            size_by_digest[digest] = size or 0
+
     by_digest = digest_to_paths(entries)
     groups = []
     for digest, paths in by_digest.items():
         if len(paths) < 2:
             continue
-        size = entries[paths[0]].get("size") or 0
+        size = size_by_digest.get(digest, 0)
         reclaimable = size * (len(paths) - 1)
         groups.append((digest, size, reclaimable, sorted(paths)))
     groups.sort(key=lambda g: g[2], reverse=True)
@@ -413,30 +445,35 @@ def audit_duplicates(entries):
 
 
 def audit_junk(entries):
-    """Return (count, total_size, sorted [rel_paths...]) for entries
-    matching the reused junk patterns."""
-    junk_paths = sorted(p for p in entries if is_junk_path(p))
-    total_size = sum(entries[p].get("size") or 0 for p in junk_paths)
-    return len(junk_paths), total_size, junk_paths
+    """Return (count, total_size, sorted [rel_paths...]) for every Drive
+    object matching the reused junk patterns -- counted per object, so two
+    junk objects sharing a path (see iter_entries()) both count and both
+    appear in the path list."""
+    junk_records = sorted(
+        (rel_path, size)
+        for rel_path, _digest, size in iter_entries(entries)
+        if is_junk_path(rel_path)
+    )
+    total_size = sum(size or 0 for _rel_path, size in junk_records)
+    return len(junk_records), total_size, [rel_path for rel_path, _size in junk_records]
 
 
 def audit_space_breakdown(entries, top_n):
     """Return (folder_sizes: [(top_level_dir, size), ...] sorted desc,
-    largest_files: [(rel_path, size), ...] top_n sorted desc)."""
+    largest_files: [(rel_path, size), ...] top_n sorted desc), counting
+    every Drive object individually (see iter_entries())."""
     folder_sizes = {}
-    for rel_path, info in entries.items():
-        size = info.get("size") or 0
+    largest_candidates = []
+    for rel_path, _digest, size in iter_entries(entries):
+        size = size or 0
         top_level = rel_path.split("/", 1)[0] if "/" in rel_path else "(root)"
         folder_sizes[top_level] = folder_sizes.get(top_level, 0) + size
+        largest_candidates.append((rel_path, size))
     folder_sizes_sorted = sorted(
         folder_sizes.items(), key=lambda kv: kv[1], reverse=True
     )
 
-    largest = sorted(
-        ((p, info.get("size") or 0) for p, info in entries.items()),
-        key=lambda kv: kv[1],
-        reverse=True,
-    )[:top_n]
+    largest = sorted(largest_candidates, key=lambda kv: kv[1], reverse=True)[:top_n]
 
     return folder_sizes_sorted, largest
 
