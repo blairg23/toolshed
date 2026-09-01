@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "discordtools"
+version = "0.1.0"
+description = "Interactive Discord server audit and cleanup CLI."
+authors = ["blairg23 <blairg23@gmail.com>"]
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.31"
+rich = "^13.7"
+python-dotenv = "^1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
