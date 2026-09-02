@@ -306,6 +306,7 @@ def cmd_filter(args):
 
 
 def cmd_leave(args):
+    global guilds_raw
     if not current_view:
         print("No servers in view. Run: fetch then list")
         return
@@ -366,10 +367,13 @@ def cmd_leave(args):
         print(f"  {'✓' if ok else '✗ FAILED'} {g['name']}")
         if ok:
             guilds.remove(g)
+            guilds_raw = [raw for raw in guilds_raw if raw["id"] != g["id"]]
             left += 1
         time.sleep(0.5)
 
     current_view[:] = apply_sort(guilds)
+    if left:
+        save_cache()
     print(f"\nLeft {left} servers. {len(guilds)} remaining.")
 
 

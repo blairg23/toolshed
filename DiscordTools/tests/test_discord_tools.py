@@ -1,12 +1,15 @@
-"""Tests for discord_tools.py's pure helper functions.
+"""Tests for discord_tools.py's pure helper functions and cmd_leave().
 
 Everything here is deterministic logic (snowflake decoding, age math,
-guild enrichment, sorting) -- no real Discord API calls, no network.
+guild enrichment, sorting) or a cmd_leave() run with the Discord API and
+input() mocked out -- no real network calls.
 """
 
 from __future__ import annotations
 
 import datetime
+import json
+from pathlib import Path
 
 import discord_tools
 
@@ -99,3 +102,74 @@ def test_apply_sort_by_name_case_insensitive(monkeypatch):
     monkeypatch.setattr(discord_tools, "sort_by", "name")
     result = discord_tools.apply_sort(_guilds())
     assert [g["name"] for g in result] == ["apple", "Mango", "Zebra"]
+
+
+# ---------- cmd_leave ----------
+
+
+class _FakeResponse:
+    def __init__(self, status_code=204):
+        self.status_code = status_code
+
+    def json(self):
+        return {}
+
+
+def test_leave_removes_departed_server_from_raw_cache_and_persists_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression test: after a successful leave, guilds_raw (what actually
+    gets written to disk) must drop the departed server too, and the cache
+    file must be rewritten -- otherwise the next `fetch` reloads the
+    already-left server right back into view."""
+    raw1 = {"id": "1", "name": "Guild One", "owner": False, "features": []}
+    raw2 = {"id": "2", "name": "Guild Two", "owner": False, "features": []}
+    enriched1 = discord_tools.enrich(raw1)
+    enriched2 = discord_tools.enrich(raw2)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(discord_tools, "guilds_raw", [raw1, raw2])
+    monkeypatch.setattr(discord_tools, "guilds", [enriched1, enriched2])
+    monkeypatch.setattr(discord_tools, "current_view", [enriched1, enriched2])
+    monkeypatch.setattr(discord_tools, "token", "fake-token")
+    monkeypatch.setattr(discord_tools.requests, "delete", lambda *a, **k: _FakeResponse())
+    monkeypatch.setattr(discord_tools.time, "sleep", lambda _s: None)
+
+    responses = iter(["1", "yes"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
+
+    discord_tools.cmd_leave([])
+
+    assert [g["id"] for g in discord_tools.guilds_raw] == ["2"]
+    assert [g["id"] for g in discord_tools.guilds] == ["2"]
+
+    cached = json.loads(Path(discord_tools.CACHE_FILE).read_text())
+    assert [g["id"] for g in cached["guilds_raw"]] == ["2"]
+
+
+def test_leave_leaves_cache_untouched_when_nothing_actually_left(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """If every selected server fails to leave (or the user cancels), the
+    cache must not be rewritten -- no successful deletions means nothing
+    to persist."""
+    raw1 = {"id": "1", "name": "Guild One", "owner": False, "features": []}
+    enriched1 = discord_tools.enrich(raw1)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(discord_tools, "guilds_raw", [raw1])
+    monkeypatch.setattr(discord_tools, "guilds", [enriched1])
+    monkeypatch.setattr(discord_tools, "current_view", [enriched1])
+    monkeypatch.setattr(discord_tools, "token", "fake-token")
+    monkeypatch.setattr(
+        discord_tools.requests, "delete", lambda *a, **k: _FakeResponse(status_code=403)
+    )
+    monkeypatch.setattr(discord_tools.time, "sleep", lambda _s: None)
+
+    responses = iter(["1", "yes"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
+
+    discord_tools.cmd_leave([])
+
+    assert [g["id"] for g in discord_tools.guilds_raw] == ["1"]
+    assert not Path(discord_tools.CACHE_FILE).exists()

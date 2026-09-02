@@ -40,7 +40,9 @@ poetry install
 
 ### 3. Create a `.env` file
 
-In the same folder as `discord_tools.py`, create a file called `.env`:
+In `DiscordTools/` (the directory you run the command from -- `load_dotenv()`
+searches the current working directory, not the script's own location),
+create a file called `.env`:
 
 ```
 DISCORD_TOKEN=your_token_here
@@ -53,7 +55,7 @@ DISCORD_TOKEN=your_token_here
 ## Usage
 
 ```bash
-poetry run python discord_tools.py
+poetry run python src/discord_tools.py
 ```
 
 ### Commands
