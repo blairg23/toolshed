@@ -11,6 +11,12 @@ pyyaml = "^6.0"
 [tool.poetry.scripts]
 filemapper = "filemapper:main"
 
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

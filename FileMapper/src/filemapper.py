@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -17,6 +18,87 @@ from datetime import datetime
 import yaml
 
 DEFAULT_FALLBACK_LIMIT = 10
+
+
+class TransferVerificationError(OSError):
+    """A copy's destination size didn't match its source -- the transfer is
+    incomplete or corrupt. The source is guaranteed untouched when this is
+    raised. Subclasses OSError so callers that need to catch "any ordinary
+    filesystem failure" (disk full, permission denied, disconnected share)
+    catch this uniformly alongside those, without swallowing unrelated bugs."""
+
+
+def _recreate_symlink(src: Path, dest: Path, operation: str) -> None:
+    """Move/copy src by recreating it as an equivalent symlink at dest.
+
+    shutil.copy2() follows symlinks by default, so running a symlinked
+    source through the normal copy-and-verify path would silently
+    dereference it into a real file copy and then delete the original
+    link -- losing the "points elsewhere" relationship entirely. A
+    symlink has no meaningful "content" to size-check; the correct
+    integrity check is simply that dest ends up a symlink pointing at the
+    same target.
+    """
+    target = os.readlink(str(src))
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+    os.symlink(target, str(dest))
+    if operation == "move":
+        src.unlink()
+
+
+def verified_transfer(src: Path, dest: Path, operation: str) -> None:
+    """Copy src to dest with size verification before ever deleting src.
+
+    shutil.move() across filesystems (the common case here -- e.g. an
+    inbox on C: being archived to a Drive-synced folder on D:) can't do an
+    atomic rename, so it silently falls back to copy-then-delete-source
+    with no verification. If that copy is interrupted partway through (a
+    crash, sleep, or forced reboot mid-transfer), the source still gets
+    deleted, leaving a truncated, corrupt file under the final name and no
+    original to recover from.
+
+    This copies to a temporary name in dest's own directory first, checks
+    the copy's size matches the source's exactly, atomically renames the
+    verified copy into place (os.replace(), same filesystem as dest so
+    this step itself can't produce a partial file under the final name),
+    and only then -- for a move -- removes the source. On any mismatch the
+    temp file is deleted, the source is left untouched, and
+    TransferVerificationError is raised instead of silently reporting
+    success.
+
+    Two cases are handled before any of that:
+    - src and dest are the same file (matching path/date -> identical
+      output name landing back in the source directory): a no-op, same as
+      shutil.move() always treated this case.
+    - src is a symlink: recreated as a symlink at dest rather than copied,
+      see _recreate_symlink().
+    """
+    if src.resolve() == dest.resolve():
+        return
+
+    if src.is_symlink():
+        _recreate_symlink(src, dest, operation)
+        return
+
+    tmp_dest = dest.with_name(dest.name + ".partial")
+    try:
+        shutil.copy2(str(src), str(tmp_dest))
+        src_size = src.stat().st_size
+        tmp_size = tmp_dest.stat().st_size
+        if tmp_size != src_size:
+            raise TransferVerificationError(
+                f"size mismatch for {src.name}: source is {src_size} bytes, "
+                f"copy is {tmp_size} bytes -- transfer was interrupted or "
+                f"incomplete. Source was NOT deleted."
+            )
+    except BaseException:
+        tmp_dest.unlink(missing_ok=True)
+        raise
+
+    os.replace(str(tmp_dest), str(dest))
+    if operation == "move":
+        src.unlink()
 
 
 def load_config(config_path: Path) -> dict:
@@ -292,19 +374,31 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    failures = []
     for src, tgt in resolved:
         if not tgt:
             print(f"  SKIP: {src.name}")
             continue
         out_name = build_output_name(src, tgt, cfg)
         dest = out_dir / out_name
-        if operation == "move":
-            shutil.move(str(src), str(dest))
-        else:
-            shutil.copy2(str(src), str(dest))
+        try:
+            verified_transfer(src, dest, operation)
+        except OSError as e:
+            # Covers both TransferVerificationError (a completed-but-bad
+            # copy) and ordinary filesystem failures raised by copy2()/
+            # stat()/os.replace() -- e.g. disk-full, permission denied, a
+            # disconnected network share. Anything not an OSError (a real
+            # bug, or a process-control exception) still propagates and
+            # aborts the run rather than being silently swallowed here.
+            print(f"  FAILED: {src.name} -> {out_name}: {e}")
+            failures.append(src.name)
+            continue
         print(f"  {'Moved' if operation == 'move' else 'Copied'}: {src.name} → {out_name}  (matched: {tgt.name})")
 
-    print("\nDone.")
+    if failures:
+        print(f"\nDone -- {len(failures)} failed (source preserved): {', '.join(failures)}")
+    else:
+        print("\nDone.")
 
 
 def main():
