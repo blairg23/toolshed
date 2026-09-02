@@ -20,10 +20,31 @@ import yaml
 DEFAULT_FALLBACK_LIMIT = 10
 
 
-class TransferVerificationError(Exception):
+class TransferVerificationError(OSError):
     """A copy's destination size didn't match its source -- the transfer is
     incomplete or corrupt. The source is guaranteed untouched when this is
-    raised."""
+    raised. Subclasses OSError so callers that need to catch "any ordinary
+    filesystem failure" (disk full, permission denied, disconnected share)
+    catch this uniformly alongside those, without swallowing unrelated bugs."""
+
+
+def _recreate_symlink(src: Path, dest: Path, operation: str) -> None:
+    """Move/copy src by recreating it as an equivalent symlink at dest.
+
+    shutil.copy2() follows symlinks by default, so running a symlinked
+    source through the normal copy-and-verify path would silently
+    dereference it into a real file copy and then delete the original
+    link -- losing the "points elsewhere" relationship entirely. A
+    symlink has no meaningful "content" to size-check; the correct
+    integrity check is simply that dest ends up a symlink pointing at the
+    same target.
+    """
+    target = os.readlink(str(src))
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+    os.symlink(target, str(dest))
+    if operation == "move":
+        src.unlink()
 
 
 def verified_transfer(src: Path, dest: Path, operation: str) -> None:
@@ -45,7 +66,21 @@ def verified_transfer(src: Path, dest: Path, operation: str) -> None:
     temp file is deleted, the source is left untouched, and
     TransferVerificationError is raised instead of silently reporting
     success.
+
+    Two cases are handled before any of that:
+    - src and dest are the same file (matching path/date -> identical
+      output name landing back in the source directory): a no-op, same as
+      shutil.move() always treated this case.
+    - src is a symlink: recreated as a symlink at dest rather than copied,
+      see _recreate_symlink().
     """
+    if src.resolve() == dest.resolve():
+        return
+
+    if src.is_symlink():
+        _recreate_symlink(src, dest, operation)
+        return
+
     tmp_dest = dest.with_name(dest.name + ".partial")
     try:
         shutil.copy2(str(src), str(tmp_dest))
@@ -348,7 +383,13 @@ def run(config_path: Path, dry_run: bool, section: str | None = None,
         dest = out_dir / out_name
         try:
             verified_transfer(src, dest, operation)
-        except TransferVerificationError as e:
+        except OSError as e:
+            # Covers both TransferVerificationError (a completed-but-bad
+            # copy) and ordinary filesystem failures raised by copy2()/
+            # stat()/os.replace() -- e.g. disk-full, permission denied, a
+            # disconnected network share. Anything not an OSError (a real
+            # bug, or a process-control exception) still propagates and
+            # aborts the run rather than being silently swallowed here.
             print(f"  FAILED: {src.name} -> {out_name}: {e}")
             failures.append(src.name)
             continue
